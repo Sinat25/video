@@ -1,170 +1,99 @@
-import React, { useEffect, useState } from 'react';
-import { View, ScrollView, Pressable, Text, Alert } from 'react-native';
-import * as MediaLibrary from 'expo-media-library';
-import { ScreenContainer } from '@/components/screen-container';
-import { saveVideo, getStoredVideos, VideoStep, deleteVideo } from '@/src/storage/videoStorage';
+import React, { useState, useEffect } from 'react';
+import { View, Text, StyleSheet, ScrollView, Alert } from 'react-native';
+import * as ImagePicker from 'expo-image-picker';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { theme } from '../theme';
+import PrimaryButton from '../ui/PrimaryButton';
+import { VideoStorage } from '../storage/videoStorage';
 
-interface UploadScreenProps {
-  onPlaybackStart: () => void;
+interface Props {
+  onStart: (paths: string[]) => void;
+  existingVideos: string[];
 }
 
-/**
- * Upload Screen - Allows users to upload videos for each step
- */
-export function UploadScreen({ onPlaybackStart }: UploadScreenProps) {
-  const [uploadedVideos, setUploadedVideos] = useState<VideoStep[]>([]);
-  const [isLoading, setIsLoading] = useState(false);
-  const [nextStepNumber, setNextStepNumber] = useState(1);
-
-  // Load existing videos on mount
+export default function UploadScreen({ onStart, existingVideos }: Props) {
+  const [steps, setSteps] = useState<(string | null)[]>([null, null, null]); // Start with 3 steps
+  
   useEffect(() => {
-    loadVideos();
-  }, []);
+    if (existingVideos.length > 0) {
+      // Pad with nulls if needed or truncate
+      setSteps(existingVideos);
+    }
+  }, [existingVideos]);
 
-  const loadVideos = async () => {
-    try {
-      const videos = await getStoredVideos();
-      setUploadedVideos(videos);
-      setNextStepNumber(videos.length + 1);
-    } catch (error) {
-      console.error('Failed to load videos:', error);
+  const pickVideo = async (index: number) => {
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Videos,
+      allowsEditing: true, // Allows basic trim, helpful for ensuring format compatibility
+      quality: 1,
+    });
+
+    if (!result.canceled && result.assets[0]) {
+      const newSteps = [...steps];
+      // Save locally immediately
+      try {
+        const savedPath = await VideoStorage.saveVideoFile(result.assets[0].uri, index);
+        newSteps[index] = savedPath;
+        setSteps(newSteps);
+        
+        // Persist the list
+        const validPaths = newSteps.filter((s): s is string => s !== null);
+        await VideoStorage.saveVideos(validPaths);
+      } catch (e) {
+        Alert.alert("Error", "Failed to save video to local storage.");
+      }
     }
   };
 
-  const pickVideo = async (stepNumber: number) => {
-    try {
-      setIsLoading(true);
+  const addStep = () => setSteps([...steps, null]);
 
-      // Request media library permissions
-      const { status } = await MediaLibrary.requestPermissionsAsync();
-      if (status !== 'granted') {
-        Alert.alert('Permission Denied', 'Please allow access to your media library');
-        return;
-      }
-
-      // Get all videos from media library
-      const media = await MediaLibrary.getAssetsAsync({
-        mediaType: 'video',
-        first: 100,
-      });
-
-      if (media.assets.length === 0) {
-        Alert.alert('No Videos', 'No videos found in your media library');
-        return;
-      }
-
-      // For now, use the first video as a demo
-      // In production, you'd show a picker UI
-      const selectedAsset = media.assets[0];
-      const assetInfo = await MediaLibrary.getAssetInfoAsync(selectedAsset);
-
-      if (assetInfo.localUri) {
-        await saveVideo(stepNumber, assetInfo.localUri, selectedAsset.filename || 'video.mp4');
-        await loadVideos();
-      }
-    } catch (error) {
-      console.error('Error picking video:', error);
-      Alert.alert('Error', 'Failed to select video. Please try again.');
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const handleDeleteVideo = async (stepNumber: number) => {
-    Alert.alert(
-      'Delete Video',
-      `Are you sure you want to delete Step ${stepNumber}?`,
-      [
-        { text: 'Cancel', onPress: () => {}, style: 'cancel' },
-        {
-          text: 'Delete',
-          onPress: async () => {
-            try {
-              await deleteVideo(stepNumber);
-              await loadVideos();
-            } catch (error) {
-              Alert.alert('Error', 'Failed to delete video');
-            }
-          },
-          style: 'destructive',
-        },
-      ]
-    );
-  };
-
-  const canStartPlayback = uploadedVideos.length > 0;
-  const buttonDisabled = !canStartPlayback || isLoading;
+  const canStart = steps.every(s => s !== null) && steps.length > 0;
 
   return (
-    <ScreenContainer className="bg-gray-950">
-      <ScrollView contentContainerStyle={{ flexGrow: 1 }} className="flex-1">
-        <View className="flex-1 p-6 gap-6">
-          {/* Header */}
-          <View className="gap-2">
-            <Text className="text-4xl font-bold text-white">Video Steps</Text>
-            <Text className="text-gray-400 text-base">
-              Upload videos for each step to create a seamless experience
-            </Text>
-          </View>
+    <SafeAreaView style={styles.container}>
+      <View style={styles.header}>
+        <Text style={styles.title}>Setup Steps</Text>
+        <Text style={styles.subtitle}>Upload a video for each interaction.</Text>
+      </View>
 
-          {/* Video List */}
-          <View className="gap-3">
-            {uploadedVideos.map((video) => (
-              <View
-                key={video.id}
-                className="bg-gray-900 rounded-lg p-4 border border-gray-800 flex-row items-center justify-between"
-              >
-                <View className="flex-1 gap-1">
-                  <Text className="text-white font-semibold text-base">Step {video.stepNumber}</Text>
-                  <Text className="text-gray-400 text-sm">{video.fileName}</Text>
-                </View>
-                <Pressable
-                  onPress={() => handleDeleteVideo(video.stepNumber)}
-                  className="px-3 py-1 rounded bg-red-900/30 border border-red-700"
-                >
-                  <Text className="text-red-400 text-sm font-medium">Delete</Text>
-                </Pressable>
-              </View>
-            ))}
+      <ScrollView style={styles.list}>
+        {steps.map((uri, index) => (
+          <View key={index} style={styles.stepRow}>
+            <View style={styles.stepInfo}>
+              <Text style={styles.stepLabel}>Step {index + 1}</Text>
+              {uri && <Text style={styles.status}>Ready ✓</Text>}
+            </View>
+            <PrimaryButton 
+              title={uri ? "Replace" : "Upload Video"} 
+              onPress={() => pickVideo(index)}
+              variant={uri ? 'secondary' : 'primary'}
+            />
           </View>
-
-          {/* Add New Step Button */}
-          <Pressable
-            onPress={() => pickVideo(nextStepNumber)}
-            disabled={isLoading}
-            className="rounded-lg p-4 border-2 border-dashed border-cyan-400 items-center justify-center"
-            style={{ opacity: isLoading ? 0.5 : 1 }}
-          >
-            <Text className="text-cyan-400 font-semibold text-base">
-              + Add Step {nextStepNumber}
-            </Text>
-          </Pressable>
-
-          {/* Start Playback Button */}
-          <View className="mt-auto">
-            <Pressable
-              onPress={onPlaybackStart}
-              disabled={buttonDisabled}
-              className="rounded-lg p-4 items-center justify-center"
-              style={{
-                backgroundColor: canStartPlayback && !isLoading ? '#06b6d4' : '#374151',
-              }}
-            >
-              <Text
-                style={{
-                  fontWeight: '600',
-                  fontSize: 18,
-                  color: canStartPlayback && !isLoading ? '#000000' : '#9ca3af',
-                }}
-              >
-                {uploadedVideos.length > 0
-                  ? `Start Playback (${uploadedVideos.length} video${uploadedVideos.length !== 1 ? 's' : ''})`
-                  : 'Upload a video to start'}
-              </Text>
-            </Pressable>
-          </View>
-        </View>
+        ))}
+        
+        <PrimaryButton title="+ Add Step" onPress={addStep} variant="secondary" />
       </ScrollView>
-    </ScreenContainer>
+
+      <View style={styles.footer}>
+        <PrimaryButton 
+          title="Prepare Playback" 
+          onPress={() => onStart(steps.filter((s): s is string => s !== null))}
+          disabled={!canStart}
+        />
+      </View>
+    </SafeAreaView>
   );
 }
+
+const styles = StyleSheet.create({
+  container: { flex: 1, backgroundColor: theme.colors.background, padding: theme.spacing.m },
+  header: { marginBottom: theme.spacing.l },
+  title: theme.text.title,
+  subtitle: { ...theme.text.body, color: theme.colors.textSecondary, marginTop: 4 },
+  list: { flex: 1 },
+  stepRow: { marginBottom: theme.spacing.l, backgroundColor: theme.colors.surface, padding: theme.spacing.m, borderRadius: 12 },
+  stepInfo: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: theme.spacing.s },
+  stepLabel: { color: theme.colors.text, fontWeight: '600', fontSize: 18 },
+  status: { color: theme.colors.success, fontWeight: '600' },
+  footer: { marginTop: theme.spacing.m }
+});

@@ -1,84 +1,43 @@
 workflows:
-  ios-build:
-    name: iOS Build & Sign
+  ios-workflow:
+    name: iOS Build (Unsigned)
+    max_build_duration: 60
     instance_type: mac_mini_m1
-    max_build_duration: 120
-    
     environment:
-      ios_signing:
-        provisioning_profiles:
-          - name: default_profile
+      node: latest
       xcode: latest
-      node: 18.17.0
-      ruby: 3.2.0
-
+      cocoapods: default
     scripts:
       - name: Install dependencies
         script: |
           npm install
-          npm install -g eas-cli
-
-      - name: Setup EAS
+      - name: Expo Prebuild
         script: |
-          eas build --platform ios --local --output=./build.ipa
-
-      - name: Build iOS app
+          rm -rf ios
+          # Prebuild creates the native project using index.js as the entry point
+          npx expo prebuild --platform ios --no-install
+      - name: Install Pods
         script: |
-          eas build --platform ios --local \
-            --output=./app.ipa \
-            --non-interactive
-
+          cd ios
+          pod install --repo-update
+      - name: Build iOS App Bundle
+        script: |
+          # Build the .app without signing for sideloading
+          xcodebuild build \
+            -workspace ios/SeamlessSteps.xcworkspace \
+            -scheme SeamlessSteps \
+            -configuration Release \
+            -sdk iphoneos \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            AD_HOC_CODE_SIGNING_ALLOWED=YES
+      - name: Package IPA for Sideloading
+        script: |
+          mkdir -p Payload
+          # Find and copy the .app into Payload for ZIP packaging
+          cp -r build/Build/Products/Release-iphoneos/SeamlessSteps.app Payload/
+          zip -r SeamlessSteps.ipa Payload
     artifacts:
-      - app.ipa
-      - build.ipa
-      - ios/Pods/**/*.framework
-
-    publishing:
-      email:
-        recipients:
-          - $CM_EMAIL
-        notify:
-          success: true
-          failure: true
-
-  ios-release:
-    name: iOS Release Build
-    instance_type: mac_mini_m1
-    max_build_duration: 120
-    
-    triggering:
-      events:
-        - tag
-      branch:
-        pattern: main
-        include: true
-
-    environment:
-      ios_signing:
-        provisioning_profiles:
-          - name: default_profile
-      xcode: latest
-      node: 18.17.0
-
-    scripts:
-      - name: Install dependencies
-        script: |
-          npm install
-          npm install -g eas-cli
-
-      - name: Build release iOS app
-        script: |
-          eas build --platform ios --local \
-            --output=./release.ipa \
-            --non-interactive
-
-    artifacts:
-      - release.ipa
-
-    publishing:
-      email:
-        recipients:
-          - $CM_EMAIL
-        notify:
-          success: true
-          failure: true
+      - "*.ipa"
