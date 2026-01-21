@@ -1,0 +1,84 @@
+workflows:
+  ios-build:
+    name: iOS Build & Sign
+    instance_type: mac_mini_m1
+    max_build_duration: 120
+    
+    environment:
+      ios_signing:
+        provisioning_profiles:
+          - name: default_profile
+      xcode: latest
+      node: 18.17.0
+      ruby: 3.2.0
+
+    scripts:
+      - name: Install dependencies
+        script: |
+          npm install
+          npm install -g eas-cli
+
+      - name: Setup EAS
+        script: |
+          eas build --platform ios --local --output=./build.ipa
+
+      - name: Build iOS app
+        script: |
+          eas build --platform ios --local \
+            --output=./app.ipa \
+            --non-interactive
+
+    artifacts:
+      - app.ipa
+      - build.ipa
+      - ios/Pods/**/*.framework
+
+    publishing:
+      email:
+        recipients:
+          - $CM_EMAIL
+        notify:
+          success: true
+          failure: true
+
+  ios-release:
+    name: iOS Release Build
+    instance_type: mac_mini_m1
+    max_build_duration: 120
+    
+    triggering:
+      events:
+        - tag
+      branch:
+        pattern: main
+        include: true
+
+    environment:
+      ios_signing:
+        provisioning_profiles:
+          - name: default_profile
+      xcode: latest
+      node: 18.17.0
+
+    scripts:
+      - name: Install dependencies
+        script: |
+          npm install
+          npm install -g eas-cli
+
+      - name: Build release iOS app
+        script: |
+          eas build --platform ios --local \
+            --output=./release.ipa \
+            --non-interactive
+
+    artifacts:
+      - release.ipa
+
+    publishing:
+      email:
+        recipients:
+          - $CM_EMAIL
+        notify:
+          success: true
+          failure: true
