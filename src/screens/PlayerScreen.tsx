@@ -22,5 +22,6 @@ export default function PlayerScreen({ videoPaths, hotspots, onExit }: Props) {
 }
 
 const styles = StyleSheet.create({
+  // Container must be flex: 1 to fill the screen including status bar area
   container: { flex: 1, backgroundColor: '#000' }
 });

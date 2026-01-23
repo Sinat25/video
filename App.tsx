@@ -1,9 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { View, StyleSheet } from 'react-native';
+import { View, StyleSheet, StatusBar, Platform } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { useKeepAwake } from 'expo-keep-awake';
-import { StatusBar } from 'expo-status-bar';
-
 import UploadScreen from './src/screens/UploadScreen';
 import LoadingScreen from './src/screens/LoadingScreen';
 import PlayerScreen from './src/screens/PlayerScreen';
@@ -13,12 +11,12 @@ export type AppState = 'upload' | 'loading' | 'player';
 
 export default function App() {
   useKeepAwake();
-
   const [appState, setAppState] = useState<AppState>('upload');
   const [videoPaths, setVideoPaths] = useState<string[]>([]);
   const [hotspots, setHotspots] = useState<(Hotspot | null)[]>([]);
+  // Default to true (visible)
+  const [showStatusBar, setShowStatusBar] = useState(true);
 
-  // Load saved videos and hotspots
   useEffect(() => {
     const checkStorage = async () => {
       const savedVideos = await VideoStorage.getVideos();
@@ -31,9 +29,10 @@ export default function App() {
     checkStorage();
   }, []);
 
-  const handleStartLoading = (paths: string[], hs: (Hotspot | null)[]) => {
+  const handleStartLoading = (paths: string[], hs: (Hotspot | null)[], statusBarVisible: boolean) => {
     setVideoPaths(paths);
     setHotspots(hs);
+    setShowStatusBar(statusBarVisible);
     setAppState('loading');
   };
 
@@ -41,26 +40,27 @@ export default function App() {
     switch (appState) {
       case 'upload':
         return (
-          <UploadScreen
-            onStart={handleStartLoading}
-            existingVideos={videoPaths}
+          <UploadScreen 
+            onStart={handleStartLoading} 
+            existingVideos={videoPaths} 
             existingHotspots={hotspots}
+            initialStatusBarState={showStatusBar} // Pass the current state down so it remembers
           />
         );
       case 'loading':
         return (
-          <LoadingScreen
-            videoPaths={videoPaths}
+          <LoadingScreen 
+            videoPaths={videoPaths} 
             onReady={() => setAppState('player')}
             onCancel={() => setAppState('upload')}
           />
         );
       case 'player':
         return (
-          <PlayerScreen
-            videoPaths={videoPaths}
+          <PlayerScreen 
+            videoPaths={videoPaths} 
             hotspots={hotspots}
-            onExit={() => setAppState('upload')}
+            onExit={() => setAppState('upload')} 
           />
         );
     }
@@ -68,10 +68,17 @@ export default function App() {
 
   return (
     <SafeAreaProvider>
-      {/* Dark status bar with white icons */}
-      <StatusBar style="light" backgroundColor="#000" translucent={false} />
-      
       <View style={styles.container}>
+        {/* 
+           STATUS BAR CONFIGURATION:
+           hidden={!showStatusBar} means if showStatusBar is false, hidden is true.
+        */}
+        <StatusBar 
+          translucent={true} 
+          backgroundColor="transparent" 
+          barStyle="light-content" 
+          hidden={!showStatusBar}
+        />
         {renderScreen()}
       </View>
     </SafeAreaProvider>

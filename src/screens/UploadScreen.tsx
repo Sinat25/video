@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, ScrollView, Alert, TouchableOpacity } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, Alert, TouchableOpacity, Switch } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { theme } from '../theme';
@@ -8,20 +8,22 @@ import { VideoStorage, Hotspot } from '../storage/videoStorage';
 import HotspotEditor from './HotspotEditor';
 
 interface Props {
-  onStart: (paths: string[], hotspots: (Hotspot | null)[]) => void;
+  onStart: (paths: string[], hotspots: (Hotspot | null)[], showStatusBar: boolean) => void;
   existingVideos: string[];
   existingHotspots: (Hotspot | null)[];
+  initialStatusBarState: boolean; // Receive current state from parent
 }
 
-export default function UploadScreen({ onStart, existingVideos, existingHotspots }: Props) {
+export default function UploadScreen({ onStart, existingVideos, existingHotspots, initialStatusBarState }: Props) {
   const [steps, setSteps] = useState<(string | null)[]>([null, null, null]);
   const [hotspots, setHotspots] = useState<(Hotspot | null)[]>([null, null, null]);
   const [editingIndex, setEditingIndex] = useState<number | null>(null);
+  // Initialize switch with the value passed from App.tsx
+  const [showStatusBar, setShowStatusBar] = useState(initialStatusBarState);
   
   useEffect(() => {
     if (existingVideos.length > 0) {
       setSteps(existingVideos);
-      // Ensure hotspots array matches steps length
       const hs = [...existingHotspots];
       while (hs.length < existingVideos.length) hs.push(null);
       setHotspots(hs);
@@ -136,12 +138,25 @@ export default function UploadScreen({ onStart, existingVideos, existingHotspots
           variant="secondary" 
           style={styles.addBtn}
         />
+        
+        <View style={styles.settingRow}>
+            <View>
+                <Text style={styles.settingTitle}>Show Status Bar</Text>
+                <Text style={styles.settingDesc}>Visible time, battery & signal indicators</Text>
+            </View>
+            <Switch 
+                value={showStatusBar}
+                onValueChange={setShowStatusBar}
+                trackColor={{ false: '#333', true: theme.colors.primary }}
+                thumbColor={'#fff'}
+            />
+        </View>
       </ScrollView>
 
       <View style={styles.footer}>
         <PrimaryButton 
           title="Launch Experience" 
-          onPress={() => onStart(steps.filter((s): s is string => s !== null), hotspots)}
+          onPress={() => onStart(steps.filter((s): s is string => s !== null), hotspots, showStatusBar)}
           disabled={!canStart}
         />
       </View>
@@ -167,6 +182,17 @@ const styles = StyleSheet.create({
   stepLabel: { color: theme.colors.text, fontWeight: '800', fontSize: 18 },
   status: { fontSize: 13, fontWeight: '600', marginTop: 2 },
   actionRow: { flexDirection: 'row' },
-  addBtn: { marginTop: theme.spacing.s, marginBottom: theme.spacing.xl, borderStyle: 'dashed', borderWidth: 1, borderColor: theme.colors.textSecondary, backgroundColor: 'transparent' },
+  addBtn: { marginTop: theme.spacing.s, marginBottom: theme.spacing.m, borderStyle: 'dashed', borderWidth: 1, borderColor: theme.colors.textSecondary, backgroundColor: 'transparent' },
+  settingRow: { 
+      flexDirection: 'row', 
+      justifyContent: 'space-between', 
+      alignItems: 'center',
+      backgroundColor: theme.colors.surfaceLight,
+      padding: theme.spacing.m,
+      borderRadius: 12,
+      marginBottom: theme.spacing.xl
+  },
+  settingTitle: { color: theme.colors.text, fontWeight: '600', fontSize: 16 },
+  settingDesc: { color: theme.colors.textSecondary, fontSize: 12, marginTop: 2 },
   footer: { paddingVertical: theme.spacing.m, borderTopWidth: 1, borderTopColor: theme.colors.border }
 });

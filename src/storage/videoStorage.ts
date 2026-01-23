@@ -45,6 +45,5 @@ export const VideoStorage = {
   async clearAll() {
       await AsyncStorage.removeItem(STORAGE_KEY);
       await AsyncStorage.removeItem(HOTSPOT_KEY);
-      // Clean up files in document directory if needed
   }
 };

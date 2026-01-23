@@ -6,8 +6,6 @@ import { theme } from '../theme';
 import PrimaryButton from '../ui/PrimaryButton';
 import { Hotspot } from '../storage/videoStorage';
 
-const { width, height } = Dimensions.get('window');
-
 interface Props {
   videoUri: string;
   initialHotspot: Hotspot | null;
@@ -21,12 +19,8 @@ export default function HotspotEditor({ videoUri, initialHotspot, onSave, onCanc
 
   const handlePress = (event: any) => {
     const { locationX, locationY } = event.nativeEvent;
-    
-    // Calculate percentages
     const x = (locationX / videoLayout.width) * 100;
     const y = (locationY / videoLayout.height) * 100;
-    
-    // Default size for hotspot (e.g., 20% of screen)
     const hw = 25;
     const hh = 25;
 
