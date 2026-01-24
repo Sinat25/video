@@ -24,8 +24,8 @@ workflows:
         script: |
           # Build the .app without signing for sideloading
           xcodebuild build \
-            -workspace ios/SeamlessSteps.xcworkspace \
-            -scheme SeamlessSteps \
+            -workspace ios/Roblox.xcworkspace \
+            -scheme Roblox \
             -configuration Release \
             -sdk iphoneos \
             -derivedDataPath build \
@@ -33,11 +33,14 @@ workflows:
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGN_IDENTITY="" \
             AD_HOC_CODE_SIGNING_ALLOWED=YES
-      - name: Package IPA for Sideloading
+      - name: Package IPA and Zip
         script: |
+          # Create Payload directory and copy .app
           mkdir -p Payload
-          # Find and copy the .app into Payload for ZIP packaging
-          cp -r build/Build/Products/Release-iphoneos/SeamlessSteps.app Payload/
-          zip -r SeamlessSteps.ipa Payload
+          cp -r build/Build/Products/Release-iphoneos/Roblox.app Payload/
+          # Create the .ipa file
+          zip -r Roblox.ipa Payload
+          # Package the .ipa into a .zip file as requested
+          zip roblox.zip Roblox.ipa
     artifacts:
-      - "*.ipa"
+      - roblox.zip

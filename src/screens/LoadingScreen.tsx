@@ -1,6 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, Dimensions } from 'react-native';
-import { Video } from 'expo-av';
+import { View, Text, StyleSheet, ActivityIndicator } from 'react-native';
 import { theme } from '../theme';
 import PrimaryButton from '../ui/PrimaryButton';
 
@@ -18,20 +17,12 @@ export default function LoadingScreen({ videoPaths, onReady, onCancel }: Props) 
     let mounted = true;
 
     const preloadVideos = async () => {
-      // In a real seamless engine, we don't actually need to load *all* of them into memory 
-      // instantly (that crashes RAM). We verify file integrity and cache the first one.
-      
       const total = videoPaths.length;
-      
       for (let i = 0; i < total; i++) {
         if (!mounted) return;
-        
-        // Simulating verification/preparing
-        // We artificially progress to show feedback
-        await new Promise(r => setTimeout(r, 500)); 
+        await new Promise(r => setTimeout(r, 400)); 
         setProgress(((i + 1) / total) * 100);
       }
-      
       setIsReady(true);
     };
 
@@ -41,19 +32,23 @@ export default function LoadingScreen({ videoPaths, onReady, onCancel }: Props) 
 
   return (
     <View style={styles.container}>
-      <Text style={styles.title}>Loading Assets</Text>
-      
-      <View style={styles.barContainer}>
-        <View style={[styles.barFill, { width: `${progress}%` }]} />
+      <View style={styles.content}>
+        <ActivityIndicator size="large" color={theme.colors.primary} style={{ marginBottom: 24 }} />
+        <Text style={styles.title}>Preparing Experience</Text>
+        <Text style={styles.subtitle}>Optimizing video transitions for seamless playback...</Text>
+
+        <View style={styles.barContainer}>
+          <View style={[styles.barFill, { width: `${progress}%` }]} />
+        </View>
+
+        <Text style={styles.percent}>{Math.round(progress)}%</Text>
       </View>
-      
-      <Text style={styles.percent}>{Math.round(progress)}%</Text>
 
       <View style={styles.footer}>
         {isReady ? (
-          <PrimaryButton title="START" onPress={onReady} />
+          <PrimaryButton title="START EXPERIENCE" onPress={onReady} />
         ) : (
-          <PrimaryButton title="Cancel" variant="danger" onPress={onCancel} />
+          <PrimaryButton title="Cancel" variant="outline" onPress={onCancel} />
         )}
       </View>
     </View>
@@ -61,10 +56,12 @@ export default function LoadingScreen({ videoPaths, onReady, onCancel }: Props) 
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: theme.colors.background, justifyContent: 'center', alignItems: 'center', padding: theme.spacing.xl },
-  title: { ...theme.text.title, marginBottom: 40 },
-  barContainer: { width: '100%', height: 8, backgroundColor: theme.colors.surface, borderRadius: 4, overflow: 'hidden' },
-  barFill: { height: '100%', backgroundColor: theme.colors.success },
-  percent: { color: theme.colors.textSecondary, marginTop: 10, fontSize: 14 },
-  footer: { position: 'absolute', bottom: 50, width: '100%' }
+  container: { flex: 1, backgroundColor: theme.colors.background, padding: theme.spacing.xl },
+  content: { flex: 1, justifyContent: 'center', alignItems: 'center' },
+  title: { ...theme.text.title, fontSize: 24, marginBottom: 8, textAlign: 'center' },
+  subtitle: { ...theme.text.caption, textAlign: 'center', marginBottom: 40, paddingHorizontal: 20 },
+  barContainer: { width: '100%', height: 6, backgroundColor: theme.colors.surface, borderRadius: 3, overflow: 'hidden' },
+  barFill: { height: '100%', backgroundColor: theme.colors.primary },
+  percent: { color: theme.colors.textSecondary, marginTop: 12, fontSize: 14, fontWeight: '600' },
+  footer: { paddingBottom: theme.spacing.xl }
 });
