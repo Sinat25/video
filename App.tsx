@@ -7,6 +7,7 @@ import UploadScreen from './src/screens/UploadScreen';
 import LoadingScreen from './src/screens/LoadingScreen';
 import PlayerScreen from './src/screens/PlayerScreen';
 import { VideoStorage, Hotspot } from './src/storage/videoStorage';
+import { getTheme } from './src/theme';
 import { AppSettingsProvider, useAppSettings } from './src/settings/AppSettingsContext';
 
 export type AppState = 'upload' | 'loading' | 'player';
@@ -28,7 +29,19 @@ Notifications.setNotificationHandler({
 
 function AppRoot() {
   useKeepAwake();
-  const { showStatusBar } = useAppSettings();
+  const { showStatusBar, themeMode } = useAppSettings();
+  const theme = getTheme(themeMode);
+
+  // Force-apply status bar visibility (iOS can ignore the prop-only approach in some cases)
+  useEffect(() => {
+    StatusBar.setHidden(!showStatusBar, 'fade');
+    StatusBar.setBarStyle(themeMode === 'dark' ? 'light-content' : 'dark-content');
+    // Keep full-screen drawing under the status bar area when visible
+    if (Platform.OS === 'android') {
+      StatusBar.setTranslucent(true);
+      StatusBar.setBackgroundColor('transparent');
+    }
+  }, [showStatusBar, themeMode]);
 
   const [appState, setAppState] = useState<AppState>('upload');
   const [videoPaths, setVideoPaths] = useState<string[]>([]);
@@ -82,7 +95,8 @@ function AppRoot() {
   };
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
+
       {/* 
          STATUS BAR CONFIGURATION: 
          - Translucent = content draws under it (Full Screen)
@@ -93,7 +107,7 @@ function AppRoot() {
       <StatusBar 
         translucent={true} 
         backgroundColor="transparent" 
-        barStyle="light-content"
+        barStyle={themeMode === 'dark' ? 'light-content' : 'dark-content'}
         hidden={!showStatusBar}
       />
       {renderScreen()}
@@ -114,6 +128,6 @@ export default function App() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#000',
+    backgroundColor: '#FFF',
   },
 });

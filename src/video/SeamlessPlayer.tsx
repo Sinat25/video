@@ -1,7 +1,8 @@
-import React, { useRef, useState, useEffect } from 'react';
+import React, { useRef, useState, useEffect, useCallback } from 'react';
 import { View, StyleSheet, Dimensions, TouchableWithoutFeedback } from 'react-native';
-import { Video, ResizeMode } from 'expo-av';
+import { Video, ResizeMode, AVPlaybackStatus } from 'expo-av';
 import { Hotspot } from '../storage/videoStorage';
+import { useAppSettings } from '../settings/AppSettingsContext';
 
 // Get full screen dimensions including status bar area
 const { width, height } = Dimensions.get('screen');
@@ -12,64 +13,121 @@ interface Props {
   onEnd: () => void;
 }
 
+/**
+ * SeamlessPlayer (double-buffered)
+ * - Keeps TWO <Video> components mounted at all times.
+ * - Preloads the next clip in the hidden player.
+ * - When advancing, we START the next player first, and only swap the UI once
+ *   the next player reports "isPlaying" (this prevents a visible pause/black frame).
+ */
 export default function SeamlessPlayer({ playlist, hotspots, onEnd }: Props) {
+  const { advanceOnTouchDown } = useAppSettings();
   const [index, setIndex] = useState(0);
   const [activePlayer, setActivePlayer] = useState<'A' | 'B'>('A');
 
   const videoA = useRef<Video>(null);
   const videoB = useRef<Video>(null);
 
+  const pendingSwitchTo = useRef<'A' | 'B' | null>(null);
+  const pendingIndex = useRef<number | null>(null);
+  const fallbackTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   useEffect(() => {
-    // Initial setup: Load current and next
     initializePlayer();
+    return () => {
+      if (fallbackTimer.current) clearTimeout(fallbackTimer.current);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const initializePlayer = async () => {
-    // Load first video into A
-    await loadSource('A', playlist[0], true);
+    // Load first video into A and start playing
+    await loadSource(videoA, playlist[0], true);
+
     // Preload second video into B (if exists)
     if (playlist.length > 1) {
-      await loadSource('B', playlist[1], false);
+      await loadSource(videoB, playlist[1], false);
     }
   };
 
-  const loadSource = async (player: 'A' | 'B', uri: string, shouldPlay: boolean) => {
-    const ref = player === 'A' ? videoA : videoB;
-    if (ref.current) {
-        // Unload first to clear any previous state
-        await ref.current.unloadAsync();
-        await ref.current.loadAsync(
-            { uri },
-            { 
-              shouldPlay: shouldPlay, 
-              isLooping: true,
-              resizeMode: ResizeMode.COVER,
-              isMuted: false,
-              volume: 1.0,
-              progressUpdateIntervalMillis: 500,
-            },
-            false
-        );
+  const loadSource = async (ref: React.RefObject<Video>, uri: string, shouldPlay: boolean) => {
+    if (!ref.current) return;
+    try {
+      // Clear any previous state
+      await ref.current.unloadAsync();
+    } catch (e) {}
+    try {
+      await ref.current.loadAsync(
+        { uri },
+        {
+          shouldPlay,
+          positionMillis: 0,
+          isLooping: true,
+          resizeMode: ResizeMode.COVER,
+          isMuted: false,
+          volume: 1.0,
+          progressUpdateIntervalMillis: 100,
+        },
+        true // downloadFirst helps avoid a visible hiccup on switch
+      );
+      if (!shouldPlay) {
+        // Ensure hidden player is ready at t=0
+        await ref.current.setPositionAsync(0);
+        await ref.current.pauseAsync();
+      }
+    } catch (e) {
+      console.log('Load error', e);
     }
   };
 
-  const handlePress = (event: any) => {
+  const handleTouch = (event: any) => {
     const currentHotspot = hotspots[index];
     if (currentHotspot) {
       const { locationX, locationY } = event.nativeEvent;
       const px = (locationX / width) * 100;
       const py = (locationY / height) * 100;
 
-      const isInside = 
-        px >= currentHotspot.x && 
-        px <= (currentHotspot.x + currentHotspot.width) &&
-        py >= currentHotspot.y && 
-        py <= (currentHotspot.y + currentHotspot.height);
+      const isInside =
+        px >= currentHotspot.x &&
+        px <= currentHotspot.x + currentHotspot.width &&
+        py >= currentHotspot.y &&
+        py <= currentHotspot.y + currentHotspot.height;
 
       if (!isInside) return;
     }
     handleNext();
   };
+
+  const swapTo = useCallback(
+    async (player: 'A' | 'B') => {
+      const nextIndex = pendingIndex.current;
+      if (nextIndex === null) return;
+
+      const nextRef = player === 'A' ? videoA : videoB;
+      const oldRef = player === 'A' ? videoB : videoA;
+
+      // Swap UI instantly now that next is confirmed playing
+      setActivePlayer(player);
+      setIndex(nextIndex);
+
+      // Clear pending + fallback timer
+      pendingSwitchTo.current = null;
+      pendingIndex.current = null;
+      if (fallbackTimer.current) {
+        clearTimeout(fallbackTimer.current);
+        fallbackTimer.current = null;
+      }
+
+      // Cleanup old + preload the clip after the one we just switched to
+      cleanupAndPreload(oldRef, nextIndex + 1);
+
+      // Make sure the newly active player stays playing
+      try {
+        await nextRef.current?.playAsync();
+      } catch (e) {}
+    },
+    []
+  );
 
   const handleNext = async () => {
     const nextIndex = index + 1;
@@ -79,59 +137,67 @@ export default function SeamlessPlayer({ playlist, hotspots, onEnd }: Props) {
       return;
     }
 
-    // INSTANT SWITCH LOGIC
-    // The 'next' player is already loaded with the video due to our preload logic.
     const nextPlayer = activePlayer === 'A' ? 'B' : 'A';
-    const currentRef = activePlayer === 'A' ? videoA : videoB;
-    const nextRef = activePlayer === 'A' ? videoB : videoA;
+    const nextRef = nextPlayer === 'A' ? videoA : videoB;
 
-    // 1. Start playing the next video immediately. 
-    // Since it was preloaded, this is much faster.
-    nextRef.current?.playAsync();
+    pendingSwitchTo.current = nextPlayer;
+    pendingIndex.current = nextIndex;
 
-    // 2. SWAP UI INSTANTLY. Do not wait for promises.
-    setActivePlayer(nextPlayer);
-    setIndex(nextIndex);
+    // Safety fallback: if iOS doesn't report isPlaying quickly, swap anyway.
+    if (fallbackTimer.current) clearTimeout(fallbackTimer.current);
+    fallbackTimer.current = setTimeout(() => {
+      if (pendingSwitchTo.current === nextPlayer) {
+        swapTo(nextPlayer);
+      }
+    }, 700);
 
-    // 3. Cleanup old video and preload the *next next* video in background
-    // We do this without awaiting to keep UI responsive
-    cleanupAndPreload(currentRef, nextIndex + 1);
+    try {
+      // Start the next player FIRST while keeping current visible
+      await nextRef.current?.setPositionAsync(0);
+      await nextRef.current?.playAsync();
+      // UI swap happens in onPlaybackStatusUpdate when isPlaying is confirmed
+    } catch (e) {
+      // Fall back immediately if play failed
+      swapTo(nextPlayer);
+    }
   };
 
   const cleanupAndPreload = async (oldRef: React.RefObject<Video>, futureIndex: number) => {
     try {
-        // Stop old video to save resources
-        await oldRef.current?.stopAsync();
-
-        // If there is a video after the one we just switched to, load it into the now-hidden player
-        if (futureIndex < playlist.length) {
-            await oldRef.current?.unloadAsync();
-            await oldRef.current?.loadAsync(
-                { uri: playlist[futureIndex] },
-                {
-                    shouldPlay: false, // Don't play yet, just buffer
-                    isLooping: true,
-                    resizeMode: ResizeMode.COVER,
-                    isMuted: false
-                }
-            );
-        }
+      await oldRef.current?.stopAsync();
+    } catch (e) {}
+    try {
+      if (futureIndex < playlist.length) {
+        // Load the *future* clip into the now-hidden player
+        await loadSource(oldRef, playlist[futureIndex], false);
+      } else {
+        // Nothing left to preload; keep it unloaded to save memory
+        try {
+          await oldRef.current?.unloadAsync();
+        } catch (e) {}
+      }
     } catch (e) {
-        console.log("Preload error", e);
+      console.log('Preload error', e);
+    }
+  };
+
+  const handleStatusUpdate = (player: 'A' | 'B') => (status: AVPlaybackStatus) => {
+    // @ts-ignore - expo-av status typing varies across versions
+    if (status?.isLoaded && status.isPlaying) {
+      if (pendingSwitchTo.current === player) {
+        swapTo(player);
+      }
     }
   };
 
   return (
-    <TouchableWithoutFeedback onPress={handlePress}>
+    <TouchableWithoutFeedback
+      onPressIn={advanceOnTouchDown ? handleTouch : undefined}
+      onPressOut={!advanceOnTouchDown ? handleTouch : undefined}
+    >
       <View style={styles.container}>
-        {/* 
-           We render both players at full screen size using absolute positioning.
-           We use Opacity 0/1 instead of conditional rendering to ensure the 
-           Video component stays mounted and buffered in memory.
-        */}
-
         {/* Player A */}
-        <View 
+        <View
           style={[styles.videoWrapper, { opacity: activePlayer === 'A' ? 1 : 0 }]}
           pointerEvents={activePlayer === 'A' ? 'auto' : 'none'}
         >
@@ -139,11 +205,12 @@ export default function SeamlessPlayer({ playlist, hotspots, onEnd }: Props) {
             ref={videoA}
             style={styles.video}
             resizeMode={ResizeMode.COVER}
+            onPlaybackStatusUpdate={handleStatusUpdate('A')}
           />
         </View>
 
         {/* Player B */}
-        <View 
+        <View
           style={[styles.videoWrapper, { opacity: activePlayer === 'B' ? 1 : 0 }]}
           pointerEvents={activePlayer === 'B' ? 'auto' : 'none'}
         >
@@ -151,6 +218,7 @@ export default function SeamlessPlayer({ playlist, hotspots, onEnd }: Props) {
             ref={videoB}
             style={styles.video}
             resizeMode={ResizeMode.COVER}
+            onPlaybackStatusUpdate={handleStatusUpdate('B')}
           />
         </View>
       </View>

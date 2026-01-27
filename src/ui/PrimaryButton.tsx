@@ -1,6 +1,7 @@
 import React from 'react';
 import { TouchableOpacity, Text, StyleSheet, ActivityIndicator, ViewStyle, TextStyle } from 'react-native';
-import { theme } from '../theme';
+import { getTheme } from '../theme';
+import { useAppSettings } from '../settings/AppSettingsContext';
 
 interface Props {
   title: string;
@@ -21,6 +22,10 @@ export default function PrimaryButton({
   style,
   textStyle
 }: Props) {
+  const { themeMode } = useAppSettings();
+  const theme = getTheme(themeMode);
+  const styles = createStyles(theme);
+
   const getButtonStyle = () => {
     switch (variant) {
       case 'secondary': return styles.secondary;
@@ -32,6 +37,7 @@ export default function PrimaryButton({
 
   const getTextStyle = () => {
     switch (variant) {
+      case 'secondary': return styles.secondaryText;
       case 'outline': return styles.outlineText;
       default: return styles.text;
     }
@@ -53,7 +59,7 @@ export default function PrimaryButton({
   );
 }
 
-const styles = StyleSheet.create({
+const createStyles = (theme: any) => StyleSheet.create({
   button: {
     height: 56,
     borderRadius: 16,
@@ -86,6 +92,12 @@ const styles = StyleSheet.create({
     color: theme.colors.primary,
     fontSize: 17,
     fontWeight: '700',
+  },
+  secondaryText: {
+    color: theme.colors.text,
+    fontSize: 17,
+    fontWeight: '700',
+    letterSpacing: 0.2,
   },
   disabled: {
     opacity: 0.5,

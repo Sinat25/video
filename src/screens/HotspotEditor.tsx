@@ -1,8 +1,9 @@
-import React, { useState, useRef } from 'react';
-import { View, StyleSheet, Dimensions, TouchableWithoutFeedback, Text, Alert } from 'react-native';
+import React, { useState } from 'react';
+import { View, StyleSheet, TouchableWithoutFeedback, Text, Alert } from 'react-native';
 import { Video, ResizeMode } from 'expo-av';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { theme } from '../theme';
+import { getTheme } from '../theme';
+import { useAppSettings } from '../settings/AppSettingsContext';
 import PrimaryButton from '../ui/PrimaryButton';
 import { Hotspot } from '../storage/videoStorage';
 
@@ -14,6 +15,11 @@ interface Props {
 }
 
 export default function HotspotEditor({ videoUri, initialHotspot, onSave, onCancel }: Props) {
+  const { themeMode } = useAppSettings();
+  const theme = getTheme(themeMode);
+  const styles = createStyles(theme);
+
+  const { showStatusBar } = useAppSettings();
   const [hotspot, setHotspot] = useState<Hotspot | null>(initialHotspot);
   const [videoLayout, setVideoLayout] = useState({ width: 0, height: 0 });
 
@@ -41,7 +47,10 @@ export default function HotspotEditor({ videoUri, initialHotspot, onSave, onCanc
   };
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView
+      style={styles.container}
+      edges={showStatusBar ? ['top', 'left', 'right', 'bottom'] : ['left', 'right', 'bottom']}
+    >
       <View style={styles.header}>
         <Text style={styles.title}>Set Click Area</Text>
         <Text style={styles.subtitle}>Tap where the user should click to advance.</Text>
@@ -97,15 +106,15 @@ export default function HotspotEditor({ videoUri, initialHotspot, onSave, onCanc
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#000' },
+const createStyles = (theme: any) => StyleSheet.create({
+  container: { flex: 1, backgroundColor: theme.colors.background },
   header: { padding: theme.spacing.m, zIndex: 10 },
   title: { ...theme.text.title, fontSize: 24 },
   subtitle: { ...theme.text.caption, marginTop: 4 },
   videoContainer: {
     flex: 1,
     marginVertical: theme.spacing.m,
-    backgroundColor: '#111',
+    backgroundColor: '#000',
     overflow: 'hidden',
     borderRadius: 20,
     borderWidth: 1,

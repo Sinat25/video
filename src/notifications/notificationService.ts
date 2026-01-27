@@ -30,30 +30,55 @@ export async function ensureNotificationPermissionsAsync(): Promise<boolean> {
   return finalStatus === 'granted';
 }
 
-export async function scheduleManualNotificationAsync(params: {
+export async function scheduleManualNotificationsAsync(params: {
   title: string;
   description: string;
   secondsFromNow: number;
-}): Promise<string | null> {
+  count: number;
+}): Promise<string[] | null> {
   const title = (params.title || '').trim();
   const description = (params.description || '').trim();
   const seconds = Math.max(1, Math.floor(params.secondsFromNow || 1));
+  const count = Math.max(1, Math.min(200, Math.floor(params.count || 1)));
 
   await ensureAndroidDefaultChannelAsync();
 
   const ok = await ensureNotificationPermissionsAsync();
   if (!ok) return null;
 
-  const id = await Notifications.scheduleNotificationAsync({
-    content: {
-      title: title.length ? title : 'Notification',
-      body: description.length ? description : '',
-    },
-    trigger: {
-      type: Notifications.SchedulableTriggerInputTypes.TIME_INTERVAL,
-      seconds,
-    },
-  });
+  const ids: string[] = [];
 
-  return id;
+  // NOTE:
+  // Scheduling many notifications for the *exact same second* can sometimes get coalesced
+  // on certain platforms. We add a tiny stagger (1s) to make delivery consistent.
+  for (let i = 0; i < count; i++) {
+    const id = await Notifications.scheduleNotificationAsync({
+      content: {
+        title: title.length ? title : 'Notification',
+        body: description.length ? description : '',
+      },
+      trigger: {
+        type: Notifications.SchedulableTriggerInputTypes.TIME_INTERVAL,
+        seconds: seconds + i,
+      },
+    });
+    ids.push(id);
+  }
+
+  return ids;
+}
+
+// Backward-compatible alias (kept so nothing breaks if you imported the old name somewhere)
+export async function scheduleManualNotificationAsync(params: {
+  title: string;
+  description: string;
+  secondsFromNow: number;
+}): Promise<string | null> {
+  const ids = await scheduleManualNotificationsAsync({
+    title: params.title,
+    description: params.description,
+    secondsFromNow: params.secondsFromNow,
+    count: 1,
+  });
+  return ids && ids.length ? ids[0] : null;
 }

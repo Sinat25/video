@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { View, Text, StyleSheet, ActivityIndicator } from 'react-native';
-import { theme } from '../theme';
+import { getTheme } from '../theme';
+import { useAppSettings } from '../settings/AppSettingsContext';
 import PrimaryButton from '../ui/PrimaryButton';
 
 interface Props {
@@ -10,6 +11,10 @@ interface Props {
 }
 
 export default function LoadingScreen({ videoPaths, onReady, onCancel }: Props) {
+  const { themeMode } = useAppSettings();
+  const theme = getTheme(themeMode);
+  const styles = createStyles(theme);
+
   const [progress, setProgress] = useState(0);
   const [isReady, setIsReady] = useState(false);
 
@@ -55,7 +60,7 @@ export default function LoadingScreen({ videoPaths, onReady, onCancel }: Props) 
   );
 }
 
-const styles = StyleSheet.create({
+const createStyles = (theme: any) => StyleSheet.create({
   container: { flex: 1, backgroundColor: theme.colors.background, padding: theme.spacing.xl },
   content: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   title: { ...theme.text.title, fontSize: 24, marginBottom: 8, textAlign: 'center' },

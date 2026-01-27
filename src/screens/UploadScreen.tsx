@@ -2,12 +2,17 @@ import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, ScrollView, Alert, TouchableOpacity, Switch, TextInput, KeyboardAvoidingView, Platform } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { theme } from '../theme';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { getTheme } from '../theme';
 import PrimaryButton from '../ui/PrimaryButton';
 import { VideoStorage, Hotspot } from '../storage/videoStorage';
 import HotspotEditor from './HotspotEditor';
 import { useAppSettings } from '../settings/AppSettingsContext';
-import { scheduleManualNotificationAsync } from '../notifications/notificationService';
+import { scheduleManualNotificationsAsync } from '../notifications/notificationService';
+
+// Persist manual notification fields so the user does not need to re-enter them every time.
+const NOTIF_TITLE_KEY = 'MANUAL_NOTIF_TITLE';
+const NOTIF_DESC_KEY = 'MANUAL_NOTIF_DESC';
 
 interface Props {
   onStart: (paths: string[], hotspots: (Hotspot | null)[]) => void;
@@ -21,13 +26,49 @@ export default function UploadScreen({ onStart, existingVideos, existingHotspots
   const [editingIndex, setEditingIndex] = useState<number | null>(null);
 
   // ✅ Status bar switcher (Show/Hide iPhone status bar)
-  const { showStatusBar, setShowStatusBar } = useAppSettings();
+  const { showStatusBar, setShowStatusBar, themeMode, setThemeMode, advanceOnTouchDown, setAdvanceOnTouchDown } = useAppSettings();
+  const theme = getTheme(themeMode);
+  const styles = createStyles(theme);
 
   // ✅ Manual notification inputs
   const [notifTitle, setNotifTitle] = useState('');
   const [notifDesc, setNotifDesc] = useState('');
   const [notifSeconds, setNotifSeconds] = useState('5');
+  const [notifCount, setNotifCount] = useState('1');
   const [notifSending, setNotifSending] = useState(false);
+  const [notifFieldsLoaded, setNotifFieldsLoaded] = useState(false);
+
+  // Load saved manual notification title/description
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      try {
+        const savedTitle = await AsyncStorage.getItem(NOTIF_TITLE_KEY);
+        const savedDesc = await AsyncStorage.getItem(NOTIF_DESC_KEY);
+        if (!mounted) return;
+        if (savedTitle !== null) setNotifTitle(savedTitle);
+        if (savedDesc !== null) setNotifDesc(savedDesc);
+      } catch (e) {
+        // Ignore storage read errors (feature is optional)
+      } finally {
+        if (mounted) setNotifFieldsLoaded(true);
+      }
+    })();
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  // Persist on change (after initial load)
+  useEffect(() => {
+    if (!notifFieldsLoaded) return;
+    AsyncStorage.setItem(NOTIF_TITLE_KEY, notifTitle).catch(() => {});
+  }, [notifTitle, notifFieldsLoaded]);
+
+  useEffect(() => {
+    if (!notifFieldsLoaded) return;
+    AsyncStorage.setItem(NOTIF_DESC_KEY, notifDesc).catch(() => {});
+  }, [notifDesc, notifFieldsLoaded]);
 
   useEffect(() => {
     if (existingVideos.length > 0) {
@@ -86,6 +127,7 @@ export default function UploadScreen({ onStart, existingVideos, existingHotspots
 
   const scheduleManualNotification = async () => {
     const seconds = Number.parseInt(notifSeconds, 10);
+    const count = Number.parseInt(notifCount, 10);
     if (!notifTitle.trim()) {
       Alert.alert('Missing Title', 'Please enter a notification title.');
       return;
@@ -94,24 +136,28 @@ export default function UploadScreen({ onStart, existingVideos, existingHotspots
       Alert.alert('Invalid Seconds', 'Please enter a number of seconds (minimum 1).');
       return;
     }
+    if (!Number.isFinite(count) || count < 1) {
+      Alert.alert('Invalid Count', 'Please enter how many notifications you want (minimum 1).');
+      return;
+    }
 
     setNotifSending(true);
     try {
-      const id = await scheduleManualNotificationAsync({
+      const ids = await scheduleManualNotificationsAsync({
         title: notifTitle,
         description: notifDesc,
         secondsFromNow: seconds,
+        count,
       });
 
-      if (!id) {
+      if (!ids) {
         Alert.alert('Permission Needed', 'Please allow notifications in iPhone Settings to use this feature.');
         return;
       }
 
-      Alert.alert('✅ Scheduled', `Notification will be sent in ${seconds} seconds.`);
-      setNotifTitle('');
-      setNotifDesc('');
-      setNotifSeconds('5');
+      Alert.alert('✅ Scheduled', `${ids.length} notification(s) will start in ${seconds} seconds.`);
+      // Keep the fields (title/description/seconds/count) so the user doesn't
+      // have to re-enter them next time.
     } catch (e: any) {
       Alert.alert('Error', e?.message ?? 'Failed to schedule notification.');
     } finally {
@@ -133,7 +179,12 @@ export default function UploadScreen({ onStart, existingVideos, existingHotspots
   const canStart = steps.every(s => s !== null) && steps.length > 0;
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView
+      style={styles.container}
+      // When the status bar is hidden, we also drop the TOP safe-area inset
+      // so the UI (and especially the video) can sit above everything.
+      edges={showStatusBar ? ['top', 'left', 'right', 'bottom'] : ['left', 'right', 'bottom']}
+    >
       <View style={styles.header}>
         <Text style={styles.title}>Project Setup</Text>
         <Text style={styles.subtitle}>Create your interactive video experience.</Text>
@@ -154,6 +205,36 @@ export default function UploadScreen({ onStart, existingVideos, existingHotspots
                 value={showStatusBar}
                 onValueChange={setShowStatusBar}
               />
+            </View>
+          </View>
+
+          {/* ✅ Theme Switcher (Light / Dark) */}
+          <View style={styles.panel}>
+            <Text style={styles.panelTitle}>Theme</Text>
+            <View style={styles.row}>
+              <View style={{ flex: 1, paddingRight: 12 }}>
+                <Text style={styles.panelLabel}>Dark mode</Text>
+                <Text style={styles.panelHint}>Switch between white and dark theme</Text>
+              </View>
+              <Switch
+                value={themeMode === 'dark'}
+                onValueChange={(v) => setThemeMode(v ? 'dark' : 'light')}
+              />
+            </View>
+          </View>
+
+
+          {/* ✅ Touch-to-advance behavior */}
+          <View style={styles.panel}>
+            <Text style={styles.panelTitle}>Touch behavior</Text>
+            <View style={styles.row}>
+              <View style={{ flex: 1, paddingRight: 12 }}>
+                <Text style={styles.panelLabel}>Advance on touch down</Text>
+                <Text style={styles.panelHint}>
+                  ON: go to next video as soon as you touch. OFF (default): go to next video when you lift your finger.
+                </Text>
+              </View>
+              <Switch value={advanceOnTouchDown} onValueChange={setAdvanceOnTouchDown} />
             </View>
           </View>
 
@@ -187,6 +268,16 @@ export default function UploadScreen({ onStart, existingVideos, existingHotspots
               value={notifSeconds}
               onChangeText={setNotifSeconds}
               placeholder="5"
+              placeholderTextColor={theme.colors.textSecondary}
+              style={styles.input}
+              keyboardType="number-pad"
+            />
+
+            <Text style={styles.inputLabel}>How many notifications?</Text>
+            <TextInput
+              value={notifCount}
+              onChangeText={setNotifCount}
+              placeholder="1"
               placeholderTextColor={theme.colors.textSecondary}
               style={styles.input}
               keyboardType="number-pad"
@@ -256,7 +347,7 @@ export default function UploadScreen({ onStart, existingVideos, existingHotspots
   );
 }
 
-const styles = StyleSheet.create({
+const createStyles = (theme: any) => StyleSheet.create({
   container: { flex: 1, backgroundColor: theme.colors.background, paddingHorizontal: theme.spacing.m },
   header: { marginTop: theme.spacing.l, marginBottom: theme.spacing.xl },
   title: theme.text.title,
